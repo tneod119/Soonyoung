@@ -1,0 +1,266 @@
+```{r setup, include=FALSE}
+# Load the necessary packages
+library(ggplot2)
+library(readxl)
+library(patchwork)
+library(forcats)
+library(dplyr)
+library(gridExtra)
+library(stringr)
+```
+
+Set our imputs and check to make sure they are in the correct order and oreantation
+```{r}
+# Set the input and output folder paths
+input_folder <- "./input"
+output_folder <- "./output"
+
+# List all Excel files in the input folder
+excel_files <- list.files(input_folder, pattern = ".csv", full.names = TRUE)
+
+# Define the desired order of files
+desired_order <- c("CFPAC1_1day_Gemcitabine_4nM") 
+# Modify with the actual file names and order
+# Reorder the excel_files list based on the desired_order
+excel_files <- excel_files[order(match(
+  tools::file_path_sans_ext(basename(excel_files)),
+  tools::file_path_sans_ext(basename(desired_order))
+))]
+
+```
+Initalize our presets
+```{r}
+#set the sample type you are working with for the titals 
+Sample<-as.character("1102_800_2500_10_10")
+
+
+#if you want the files in a specific order in the graph use this 
+graph_order<-c ("CFPAC1_1day_Gemcitabine_4nM")
+#Initalize some empty data frames 
+Far_red <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(Far_red ) <- c('FRF_high_low', 'Percentage', 'group', 'File_name')
+
+Mean <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(Mean) <- c('RF_high_low', 'Percentage', 'group', 'File_name')
+
+
+#BigCombo<- data.frame(matrix(ncol = 3, nrow = 0))
+#colnames(Mean) <- c('Catagories', 'Percentage', 'File_name')
+# Initialize a list to store individual plots
+#BigCombo2<- data.frame(matrix(ncol = 3, nrow = 0))
+
+SmallCombo<- data.frame(matrix(ncol = 3, nrow = 0))
+
+#set limits
+FRF_cutoff<-10
+#Mi needs to be set manually 
+#<800, 800-2500, >2500
+```
+ 
+ Loop through the files and make the individual graphs 
+```{r}
+colnames(data)
+
+for (file in excel_files) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(file)
+  print(file_name) # Print file_name for debugging purposes
+
+  # Read the Excel file
+  data <- read.csv(file, header  = TRUE)
+
+  # Select the desired columns
+  FRF <- data%>%select('X.Id.', 'X.Object.Count.Far.Red.Foci_Soonyoung.')
+  colnames(FRF) <- c("Id","FRF")
+  CRF<- data%>%select('X.Id.', 'X.Object.Count.Red.Foci_Soonyoung.')
+  colnames(CRF) <- c("Id","RF")
+  MI <- data%>%select('X.Id.', 'X.Mean..Intensities..3.') # Modify this line with the desired column name
+  colnames(MI) <- c("Id","MI")
+  
+  # Remove missing values from the selected columns
+  FRF <- na.omit(FRF)
+  CRF <- na.omit(CRF)
+  MI <- na.omit(MI)
+  
+
+  
+  # Replace the placeholders with appropriate values
+  x_axis_name1 <- "pRPA32_Foci"
+  x_axis_name2 <- "cGAS_Foci" # or pSRC_Foci
+  x_axis_name3 <- "pH2AX_intensity" 
+  
+  #Clean the file name 
+  file_name_graph = substring(file_name, 9)
+
+
+  FRF$pRPA32_Foci <- ifelse(FRF$FRF >= FRF_cutoff , 'pRPA32>10',"pRPA32<10") #have to change
+
+
+  #this part will need to be changed manually if we want to change it 
+  MI$pH2AX_intensity <- ifelse(MI$MI <= 800 ,"H2AX<800",ifelse(MI$MI >= 2500,"H2AX>2500","H2AX800~2500"))
+  
+  
+  #calculate the percent in the groups 
+  percent_hold_FRF<-FRF%>% group_by(pRPA32_Foci) %>%
+    summarise(Percentage = n())%>%
+    mutate(Percentage = prop.table(Percentage) * 100)
+  
+  #create the identifiers and add it to our dataframe
+  percent_hold_FRF$group<-"pRPA32_Foci"
+  percent_hold_FRF$File_name<-file_name_graph
+  Far_red <- rbind(Far_red, percent_hold_FRF)
+  
+  #calculate the percent in the groups 
+  percent_hold_MI<-MI%>% group_by(pH2AX_intensity) %>%
+    summarise(Percentage = n())%>%
+    mutate(Percentage = prop.table(Percentage) * 100)
+  #create the identifiers and add it to our dataframe
+  percent_hold_MI$group<-"pH2AX_intensity" 
+  percent_hold_MI$File_name<-file_name_graph
+  Mean <- rbind(Mean, percent_hold_MI)
+  
+  
+  
+  Combo_small<-merge(FRF,MI,by="Id")
+  #Combo<-merge(Combo_small,CRF, by="Id")
+
+  Combo_small$Catagories<- paste(Combo_small$pH2AX_intensity,"/",Combo_small$pRPA32_Foci) #change by SY
+
+  percent_hold_Combo<-Combo_small%>% group_by(Catagories) %>%
+    summarise(Percentage = n())%>%
+    mutate(Percentage = prop.table(Percentage) * 100)
+
+  percent_hold_Combo$File_name<-file_name_graph
+
+  Combo_small$Catagories<- paste(Combo_small$pH2AX_intensity,"/",Combo_small$pRPA32_Foci)
+
+  percent_hold_Combo<-Combo_small%>% group_by(Catagories) %>%
+    summarise(Percentage = n())%>%
+    mutate(Percentage = prop.table(Percentage) * 100)
+
+  percent_hold_Combo$File_name<-file_name_graph
+  SmallCombo <- rbind(SmallCombo, percent_hold_Combo)
+  
+  
+}
+```
+
+```{r}
+
+#make the far red plots 
+plot2<-ggplot(Far_red, aes(x=factor(File_name, level=graph_order),y=Percentage)) +
+    geom_col(aes(fill = factor(pRPA32_Foci,levels=c("pRPA32>10","pRPA32<10"))))+
+    
+    scale_fill_manual(
+    values = c("pRPA32>10" = "#C13E5E", #have to change
+      "pRPA32<10" = "#3E5EC1" ),
+    breaks=c("pRPA32<10","pRPA32>10")) +
+    #ggtitle(paste0(Sample, " pRPA32_Foci"))+
+    labs( y = "Number_of_Cells") +
+    labs(fill = "pRPA32_Foci")+
+    theme(plot.title = element_text(hjust = 0.5))+
+    theme(axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(angle = 45))+
+    theme(text = element_text(size = 40, face = "bold")) 
+
+  
+  name<-paste0(Sample,"pRPA32_Foci.png")
+  output_file <- file.path(output_folder, name)
+  ggsave(output_file, plot2, width = 15, height = 25, dpi = 600)
+  
+#make the mean plots
+#make the far red plots 
+plot3<-ggplot(Mean, aes(x=factor(File_name, level=graph_order),y=Percentage,)) +
+    geom_col(aes(fill = factor(pH2AX_intensity, levels=c("H2AX>2500", "H2AX800~2500","H2AX<800"))))+
+    
+    scale_fill_manual(
+    values = c("H2AX<800" = "#c5ceec",
+               "H2AX800~2500" = "#9eaee0",
+              "H2AX>2500" = "#3e5ec1"),
+    breaks=c("H2AX>2500","H2AX800~2500","H2AX<800"))+
+    #ggtitle(paste0(Sample, " pH2AX_intensity"))+
+    labs( y = "Number_of_Cells") +
+    labs(fill = "pH2AX_intensity")+
+    theme(plot.title = element_text(hjust = 0.5))+
+    theme(axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(angle = 45))+
+    theme(text = element_text(size = 40, face = "bold"))
+
+  
+  name<-paste0(Sample," pH2AX_intensity.png")
+  output_file <- file.path(output_folder, name)
+  ggsave(output_file, plot3, width = 15, height = 25, dpi = 600)
+  
+  
+```
+
+```{r}
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories, "H2AX>2500 / pRPA32>10","High_RS")
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories,"H2AX>2500 / pRPA32<10","Potential_Exaust")
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories,"H2AX800~2500 / pRPA32>10","Moderate_RS")
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories,"H2AX800~2500 / pRPA32<10","Early_Exaust")
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories,"H2AX<800 / pRPA32>10","Early_RS")
+SmallCombo$Catagories<- str_replace(SmallCombo$Catagories,"H2AX<800 / pRPA32<10","No_RS")
+
+
+```
+```{r}
+plot5<-ggplot(SmallCombo, aes(x=factor(File_name, level=graph_order),y=Percentage)) +
+    geom_col(aes(fill = factor(Catagories, levels=c("High_RS",
+                                                    "Potential_Exaust",
+                                                    "Moderate_RS",
+                                                    "Early_Exaust",
+                                                    "Early_RS",
+                                                    "No_RS"))))+
+    # have to change
+  
+    scale_fill_manual(
+    values = c("High_RS" = "#ff0080",
+               "Potential_Exaust" = "#3e5ec1",
+               "Moderate_RS" = "#ff7fbf",
+               "Early_Exaust" =  "#9eaee0",
+               "Early_RS" = "#ffcce5",
+               "No_RS" = "#c5ceec"
+                 )) +
+    ggtitle(paste0(Sample, " pH2AX_intensity & pRPA32_Foci"))+
+    labs( y = "Number_of_Cells") +
+    labs(fill = "Catagories")+
+    theme(plot.title = element_text(hjust = 0.5))+
+    theme(axis.title.x = element_blank())+
+    scale_x_discrete(guide = guide_axis(angle = 90))+
+    theme(plot.title = element_text(size = 40, face = "bold"),
+    legend.title=element_text(size=20), 
+    legend.text=element_text(size=40),
+    axis.text.x = element_text(size=60, face = "bold"),
+    axis.text.y = element_text(size=40, face = "bold"),
+    axis.title.y = element_text(size=40, face = "bold"))
+
+  jpeg(paste0("./output/",paste0(Sample, " pH2AX_intensity_pRPA32_Foci_combo"),".png"),width = 1000, height = 1200)
+  print(plot5)
+  dev.off()
+  print(plot)
+  
+  
+name<-paste0(Sample, " pH2AX_intensity_pRPA32_Foci_combo.png")
+output_file <- file.path(output_folder, name)
+ggsave(output_file, plot5, width = 15, height = 25, dpi = 600)
+
+```
+
+write out tables 
+```{r}
+
+png("./output/table_Smallcombo.png",height=700, width=700)
+p <- tableGrob(SmallCombo,rows = NULL)
+grid.arrange(p)
+dev.off()
+```
+
+
+
+
+
+
+ 
+
+
